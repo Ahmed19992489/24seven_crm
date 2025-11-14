@@ -1,91 +1,66 @@
-from flask import Flask, request
-import os
+from flask import Flask, request, jsonify
 import requests
+import json  # مهم علشان نطبع الداتا
 
 app = Flask(__name__)
 
-VERIFY_TOKEN = os.getenv("24seven_token")
-PAGE_ACCESS_TOKEN = os.getenv("EAALF8MeR7twBP9sLZBBzNmbTuPAnPZBZCYqpoc7gpftDYKqScrENxSNiQgm9fpcEJaGlyNZASqUpydNBWNi5d8XaskgZC73BX0WhnQR1dQS7Xl7bvfmWdzLBXn3tmJC1wbyzv8D28j5Tjo5daApXlfIXVJT8OumnKQChMVaE3JHP9oZBblSMFPAd4aUwJVtNfcRgZAaPC6mTNLJAZCGgU2QMlnQZD")
+# ⚠️ خلى بالك: حط الـ PAGE_ACCESS_TOKEN بتاعك هنا
+PAGE_ACCESS_TOKEN = "EAALF8MeR7twBP9sLZBBzNmbTuPAnPZBZCYqpoc7gpftDYKqScrENxSNiQgm9fpcEJaGlyNZASqUpydNBWNi5d8XaskgZC73BX0WhnQR1dQS7Xl7bvfmWdzLBXn3tmJC1wbyzv8D28j5Tjo5daApXlfIXVJT8OumnKQChMVaE3JHP9oZBblSMFPAd4aUwJVtNfcRgZAaPC6mTNLJAZCGgU2QMlnQZDا"
+
+VERIFY_TOKEN = "24seven_token"  # نفس اللى فى شاشة Messenger API Settings
+
+def send_message(recipient_id, message_text):
+    url = f"https://graph.facebook.com/v17.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {"text": message_text}
+    }
+    headers = {"Content-Type": "application/json"}
+    
+    response = requests.post(url, json=payload, headers=headers)
+    print("📤 Facebook response:", response.status_code, response.text)
 
 
-@app.route("/", methods=["GET"])
-def home():
-    return "24Seven CRM Bot is running!", 200
-
-
-# ---------------------------------------------
-#   WEBHOOK VERIFICATION (GET)
-# ---------------------------------------------
+# ✅ خطوة التحقق من الـ webhook
 @app.route("/webhook", methods=["GET"])
-def verify_webhook():
+def verify():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
+
+    print("🔎 VERIFY CALL:", mode, token, challenge)
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
         print("✅ Webhook verified successfully")
         return challenge, 200
     else:
         print("❌ Webhook verification failed")
-        return "Verification token mismatch", 403
+        return "Error validating token", 403
 
 
-# ---------------------------------------------
-#   HANDLE INCOMING MESSAGES (POST)
-# ---------------------------------------------
+# ✅ استقبال الرسائل من فيسبوك
 @app.route("/webhook", methods=["POST"])
-def handle_messages():
+def webhook():
     data = request.get_json()
-    print("📩 Received payload:", data)
+    print("📩 Incoming webhook:")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
 
-    # تأكد إن الحدث جاي من Page
     if data.get("object") == "page":
         for entry in data.get("entry", []):
-            for messaging_event in entry.get("messaging", []):
-                sender_id = messaging_event.get("sender", {}).get("id")
-                message = messaging_event.get("message")
+            for event in entry.get("messaging", []):
+                sender_id = event["sender"]["id"]
 
-                # لو في رسالة نصية من العميل
-                if sender_id and message and "text" in message:
-                    user_text = message["text"]
-                    print(f"💬 From {sender_id}: {user_text}")
+                if "message" in event and "text" in event["message"]:
+                    user_message = event["message"]["text"]
+                    print(f"👤 User ({sender_id}) said: {user_message}")
 
-                    # رد بسيط كبداية (Echo + ترحيب)
-                    reply_text = (
-                        "👋 أهلاً بيك في 24Seven Limousine!\n"
-                        f"انت كتبت: {user_text}\n\n"
-                        "إبعتلي:\n"
-                        "- اسمك\n"
-                        "- نقطة الانطلاق\n"
-                        "- نقطة الوصول\n"
-                        "- ميعاد الرحلة\n"
-                        "عشان أساعدك في الحجز 💚"
-                    )
+                    bot_reply = f"استقبلت رسالتك: {user_message}"
+                    send_message(sender_id, bot_reply)
 
-                    send_message(sender_id, reply_text)
+        return "EVENT_RECEIVED", 200
 
-    return "EVENT_RECEIVED", 200
-
-
-# ---------------------------------------------
-#   SEND MESSAGE TO USER VIA MESSENGER
-# ---------------------------------------------
-def send_message(recipient_id, text):
-    url = "https://graph.facebook.com/v21.0/me/messages"
-    params = {"access_token": PAGE_ACCESS_TOKEN}
-    payload = {
-        "recipient": {"id": recipient_id},
-        "message": {"text": text}
-    }
-
-    try:
-        r = requests.post(url, params=params, json=payload)
-        print("📤 Send API response:", r.status_code, r.text)
-    except Exception as e:
-        print("❌ Error sending message:", e)
+    return "ERROR", 404
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    # في التطوير المحلي بس
-    app.run(host="0.0.0.0", port=port)
+    app.run(port=5000, debug=True)
